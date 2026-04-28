@@ -1,29 +1,17 @@
-// Hand Pose Detection - 骨架連線版
 let video;
 let handPose;
 let hands = [];
 let dw, dh, dx, dy;
 
-let statusMessage = "正在初始化...";
+// 水泡陣列與狀態管理
+let bubbles = [];
 let isModelLoaded = false;
-let webGLSupported = false;
 
 function preload() {
-  let canvas = document.createElement('canvas');
-  webGLSupported = !!(window.WebGLRenderingContext && 
-    (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
-
-  if (webGLSupported) {
-    statusMessage = "正在載入 AI 模型...";
-    handPose = ml5.handPose({ flipped: true }, modelReady);
-  } else {
-    statusMessage = "錯誤：您的手機不支援 WebGL";
-  }
-}
-
-function modelReady() {
-  isModelLoaded = true;
-  statusMessage = "模型載入成功";
+  // 初始化模型
+  handPose = ml5.handPose({ flipped: true }, () => {
+    isModelLoaded = true;
+  });
 }
 
 function setup() {
@@ -34,9 +22,7 @@ function setup() {
   video.size(640, 480);
   video.hide();
 
-  if (webGLSupported) {
-    handPose.detectStart(video, gotHands);
-  }
+  handPose.detectStart(video, gotHands);
 }
 
 function gotHands(results) {
@@ -46,68 +32,105 @@ function gotHands(results) {
 function draw() {
   background('#e7c6ff');
 
-  if (!webGLSupported || !isModelLoaded) {
-    fill(80);
+  // --- 1. 文字改成置中、中間上方 ---
+  fill(0); 
+  noStroke();
+  textSize(32);
+  textAlign(CENTER, TOP); // 設定水平置中，垂直對齊頂部
+  // 放在寬度的一半，垂直距離頂部 20 像素
+  text("411136541江奕葳", width / 2, 20);
+
+  if (!isModelLoaded) {
     textAlign(CENTER, CENTER);
-    textSize(20);
-    text(statusMessage, width / 2, height / 2);
+    text("模型載入中...", width / 2, height / 2);
     return;
   }
 
+  // 顯示 50% 影像
   image(video, dx, dy, dw, dh);
 
   if (hands.length > 0) {
     for (let hand of hands) {
       if (hand.confidence > 0.1) {
-        drawSkeleton(hand); // 繪製骨架連線
+        drawSkeleton(hand); // 繪製骨架與圓圈
+        
+        // 2. 指尖產生水泡 (4, 8, 12, 16, 20)
+        let tips = [4, 8, 12, 16, 20];
+        for (let index of tips) {
+          let kp = hand.keypoints[index];
+          let x = map(kp.x, 0, video.width, dx, dx + dw);
+          let y = map(kp.y, 0, video.height, dy, dy + dh);
+          
+          // 控制產生頻率
+          if (random(1) > 0.9) {
+            bubbles.push(new Bubble(x, y));
+          }
+        }
       }
+    }
+  }
+
+  // 3. 更新並顯示所有水泡
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    bubbles[i].update();
+    bubbles[i].display();
+    if (bubbles[i].isFinished()) {
+      bubbles.splice(i, 1);
     }
   }
 }
 
-// 繪製骨架連線的函式
+// 骨架連線與關節點（維持原本邏輯）
 function drawSkeleton(hand) {
-  // 設定線條樣式
-  strokeWeight(3);
-  if (hand.handedness == "Left") {
-    stroke(255, 0, 255); // 左手紫色線
-    fill(255, 0, 255);
-  } else {
-    stroke(255, 255, 0); // 右手黃色線
-    fill(255, 255, 0);
-  }
+  strokeWeight(2);
+  let fingerParts = [[0,1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14,15,16], [17,18,19,20]];
+  
+  hand.handedness == "Left" ? stroke(255, 0, 255) : stroke(255, 255, 0);
 
-  // 定義要連線的群組
-  let fingerParts = [
-    [0, 1, 2, 3, 4],     // 大拇指
-    [5, 6, 7, 8],        // 食指
-    [9, 10, 11, 12],     // 中指
-    [13, 14, 15, 16],    // 無名指
-    [17, 18, 19, 20]     // 小指
-  ];
-
-  // 遍歷每一根手指的編號群組
   for (let part of fingerParts) {
     for (let i = 0; i < part.length - 1; i++) {
       let pt1 = hand.keypoints[part[i]];
       let pt2 = hand.keypoints[part[i + 1]];
-
-      // 座標轉換映射
-      let x1 = map(pt1.x, 0, video.width, dx, dx + dw);
-      let y1 = map(pt1.y, 0, video.height, dy, dy + dh);
-      let x2 = map(pt2.x, 0, video.width, dx, dx + dw);
-      let y2 = map(pt2.y, 0, video.height, dy, dy + dh);
-
-      line(x1, y1, x2, y2); // 畫線
+      line(
+        map(pt1.x, 0, video.width, dx, dx + dw),
+        map(pt1.y, 0, video.height, dy, dy + dh),
+        map(pt2.x, 0, video.width, dx, dx + dw),
+        map(pt2.y, 0, video.height, dy, dy + dh)
+      );
     }
   }
 
-  // 畫出所有關節點點
   noStroke();
   for (let kp of hand.keypoints) {
-    let x = map(kp.x, 0, video.width, dx, dx + dw);
-    let y = map(kp.y, 0, video.height, dy, dy + dh);
-    circle(x, y, 8);
+    fill(hand.handedness == "Left" ? [255, 0, 255] : [255, 255, 0]);
+    circle(map(kp.x, 0, video.width, dx, dx + dw), map(kp.y, 0, video.height, dy, dy + dh), 8);
+  }
+}
+
+// 水泡類別
+class Bubble {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.r = random(8, 20);
+    this.speed = random(1.5, 4);
+    this.alpha = 200;
+  }
+  update() {
+    this.y -= this.speed;
+    this.alpha -= 1.5; // 往上飛的過程中逐漸變透明（模擬破掉）
+  }
+  display() {
+    stroke(255, this.alpha);
+    fill(255, this.alpha * 0.2);
+    circle(this.x, this.y, this.r * 2);
+    // 反光效果
+    noStroke();
+    fill(255, this.alpha * 0.6);
+    circle(this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.4);
+  }
+  isFinished() {
+    return this.alpha < 0 || this.y < -50;
   }
 }
 
