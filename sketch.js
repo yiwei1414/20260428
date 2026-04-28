@@ -1,30 +1,42 @@
-// Hand Pose Detection with ml5.js - 置中 50% 比例版
+// Hand Pose Detection - 骨架連線版
 let video;
 let handPose;
 let hands = [];
-
-// 用於計算置中的變數
 let dw, dh, dx, dy;
 
+let statusMessage = "正在初始化...";
+let isModelLoaded = false;
+let webGLSupported = false;
+
 function preload() {
-  // 初始化模型
-  handPose = ml5.handPose({ flipped: true });
+  let canvas = document.createElement('canvas');
+  webGLSupported = !!(window.WebGLRenderingContext && 
+    (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+
+  if (webGLSupported) {
+    statusMessage = "正在載入 AI 模型...";
+    handPose = ml5.handPose({ flipped: true }, modelReady);
+  } else {
+    statusMessage = "錯誤：您的手機不支援 WebGL";
+  }
+}
+
+function modelReady() {
+  isModelLoaded = true;
+  statusMessage = "模型載入成功";
 }
 
 function setup() {
-  // 建立全螢幕畫布
   createCanvas(windowWidth, windowHeight);
-  
-  // 初始化計算影像位置與尺寸
   updateLayout();
 
-  // 設定攝影機擷取
   video = createCapture(VIDEO, { flipped: true });
   video.size(640, 480);
   video.hide();
 
-  // 開始偵測手勢
-  handPose.detectStart(video, gotHands);
+  if (webGLSupported) {
+    handPose.detectStart(video, gotHands);
+  }
 }
 
 function gotHands(results) {
@@ -32,48 +44,81 @@ function gotHands(results) {
 }
 
 function draw() {
-  // 背景設定為 e7c6ff
   background('#e7c6ff');
 
-  // 繪製影像：寬高為畫布 50%，置中顯示
+  if (!webGLSupported || !isModelLoaded) {
+    fill(80);
+    textAlign(CENTER, CENTER);
+    textSize(20);
+    text(statusMessage, width / 2, height / 2);
+    return;
+  }
+
   image(video, dx, dy, dw, dh);
 
-  // 處理手部偵測點位
   if (hands.length > 0) {
     for (let hand of hands) {
       if (hand.confidence > 0.1) {
-        for (let i = 0; i < hand.keypoints.length; i++) {
-          let keypoint = hand.keypoints[i];
-
-          // 核心轉換：將 640x480 的偵測座標映射到目前畫面上 50% 的顯示區域
-          let x = map(keypoint.x, 0, video.width, dx, dx + dw);
-          let y = map(keypoint.y, 0, video.height, dy, dy + dh);
-
-          // 區分左右手顏色
-          if (hand.handedness == "Left") {
-            fill(255, 0, 255);
-          } else {
-            fill(255, 255, 0);
-          }
-
-          noStroke();
-          circle(x, y, 12); // 調整點點大小以符合 50% 的比例
-        }
+        drawSkeleton(hand); // 繪製骨架連線
       }
     }
   }
 }
 
-// 當視窗大小改變時，重新計算畫布與影像位置
+// 繪製骨架連線的函式
+function drawSkeleton(hand) {
+  // 設定線條樣式
+  strokeWeight(3);
+  if (hand.handedness == "Left") {
+    stroke(255, 0, 255); // 左手紫色線
+    fill(255, 0, 255);
+  } else {
+    stroke(255, 255, 0); // 右手黃色線
+    fill(255, 255, 0);
+  }
+
+  // 定義要連線的群組
+  let fingerParts = [
+    [0, 1, 2, 3, 4],     // 大拇指
+    [5, 6, 7, 8],        // 食指
+    [9, 10, 11, 12],     // 中指
+    [13, 14, 15, 16],    // 無名指
+    [17, 18, 19, 20]     // 小指
+  ];
+
+  // 遍歷每一根手指的編號群組
+  for (let part of fingerParts) {
+    for (let i = 0; i < part.length - 1; i++) {
+      let pt1 = hand.keypoints[part[i]];
+      let pt2 = hand.keypoints[part[i + 1]];
+
+      // 座標轉換映射
+      let x1 = map(pt1.x, 0, video.width, dx, dx + dw);
+      let y1 = map(pt1.y, 0, video.height, dy, dy + dh);
+      let x2 = map(pt2.x, 0, video.width, dx, dx + dw);
+      let y2 = map(pt2.y, 0, video.height, dy, dy + dh);
+
+      line(x1, y1, x2, y2); // 畫線
+    }
+  }
+
+  // 畫出所有關節點點
+  noStroke();
+  for (let kp of hand.keypoints) {
+    let x = map(kp.x, 0, video.width, dx, dx + dw);
+    let y = map(kp.y, 0, video.height, dy, dy + dh);
+    circle(x, y, 8);
+  }
+}
+
+function updateLayout() {
+  dw = width * 0.5;
+  dh = height * 0.5;
+  dx = (width - dw) / 2;
+  dy = (height - dh) / 2;
+}
+
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   updateLayout();
-}
-
-// 計算佈局的自定義函式
-function updateLayout() {
-  dw = width * 0.5;   // 影像寬度 = 畫布 50%
-  dh = height * 0.5;  // 影像高度 = 畫布 50%
-  dx = (width - dw) / 2;  // 起始 X 座標（置中）
-  dy = (height - dh) / 2; // 起始 Y 座標（置中）
 }
